@@ -12,8 +12,8 @@ script: train_rllib
 # - output.name: 팀 이름 또는 실험 그룹 이름
 # - output.tag: 모델/로그 저장 하위 이름
 output:
-  name: test_mlp
-  tag: sac_mlp_v1
+  name: trinity
+  tag: sac_mlp_stage0_v1
 
 # 1) 시나리오 선택
 # - observation_mode: classic12 | relative14 | tactical16 | custom
@@ -25,7 +25,8 @@ env:
   # observation_module: student.my_observation
   target_mode: behavior_tree
   target_behavior_dll: AIP_BASE_target.dll
-  # reward_module: student.my_reward
+  reward_module: student.my_reward
+  stages_module: student.my_curriculum
   max_engage_time: 60.0
   episode_step_limit: 3600
 
@@ -38,30 +39,53 @@ env_config:
     angle_deg: 2.0
     min_range_m: 152.4
     max_range_m: 914.4
+
   # target_mode: loiter일 때 사용
   target_loiter:
     enabled: true
     bank: 30.0
     pitch: 0.0
+
   # target_mode: autopilot일 때 사용
   target_autopilot:
     heading_cmd: 180.0
     altitude_cmd: 7000.0
     speed_cmd: 250.0
+
   # 기본 보상 스케일. 개인 보상은 env.reward_module: student.my_reward 사용.
+  # [교체] 지안 님 my_reward.py 연동을 위한 풀 세팅
   reward:
     mode: default
+    survival_bonus: 0.0          # Stage 0에서는 커리큘럼이 자동으로 0.05로 켭니다
     step_penalty: -0.01
-    damage_scale: 20.0
-    pursuit_scale: 0.3
-    low_altitude_penalty: 0.1
-    win_reward: 100.0
-    loss_reward: -100.0
-    draw_reward: -30.0
+    
+    # 공격/추격 지표
+    pursuit_scale: 0.4
+    pursuit_half_angle_deg: 45.0
+    pursuit_range_m: 4000.0
+    
+    # [필수 추가] 위치우위 관련 누락 파라미터 보완
+    positioning_scale: 0.3
+    positioning_half_angle_deg: 60.0
+    
+    # WEZ 및 전투 지표
+    wez_bonus: 2.0
+    wez_threat_penalty: 2.0
+    low_altitude_penalty: 0.1    # Stage 0에서는 커리큘럼이 자동으로 1.0(10배)으로 올립니다
+    safe_altitude_m: 450.0
+    damage_scale: 25.0
+    
+    # 종료 조건
+    win_reward: 200.0
+    loss_reward: -200.0
+    draw_reward: -50.0
+    guard_fail_penalty: -50.0
+
   # [추가] 랜덤화 설정을 명시적으로 추가하여 0 전달 방지
+  # 일단 false로 설정하여 랜덤화를 끄고 학습 안정화
   ownship_randomization:
-    enabled: false    # 일단 false로 설정하여 랜덤화를 끄고 학습 안정화
-    radius: 0.0       # 명시적으로 0을 선언하여 로직 충돌 방지
+    enabled: false
+    radius: 1.0                  # 에러 우회를 위한 미세 오차 유지
     r_roll: 0.0
     r_pitch: 0.0
     r_heading: 0.0
@@ -88,7 +112,7 @@ algo:
 
 # 학습 실행 설정
 runtime:
-  iterations: 50
+  iterations: 2000
   num_env_runners: 1
   num_envs_per_env_runner: 1
   rollout_fragment_length: auto

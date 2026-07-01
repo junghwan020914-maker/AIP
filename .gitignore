@@ -18,8 +18,13 @@ DerivedDataCache/
 # 파이썬 캐시
 __pycache__/
 *.pyc
+.ipynb_checkpoints/
 
 # 가상환경
 venv/
 .venv/
 env/
+
+# 대용량 강화학습 결과물 폴더 제외
+artifacts/
+records/
