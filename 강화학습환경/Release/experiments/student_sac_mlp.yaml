@@ -58,6 +58,13 @@ env_config:
     win_reward: 100.0
     loss_reward: -100.0
     draw_reward: -30.0
+  # [추가] 랜덤화 설정을 명시적으로 추가하여 0 전달 방지
+  ownship_randomization:
+    enabled: false    # 일단 false로 설정하여 랜덤화를 끄고 학습 안정화
+    radius: 0.0       # 명시적으로 0을 선언하여 로직 충돌 방지
+    r_roll: 0.0
+    r_pitch: 0.0
+    r_heading: 0.0
 
 # 2) 학습 알고리즘 선택 + 3) 하이퍼파라미터 조정 + 5) 신경망 선택
 # - SAC는 off-policy라 replay buffer를 사용한다.
@@ -106,7 +113,7 @@ policy_probe:
   print: true
 
 engagement_log:
-  enabled: false
+  enabled: true
   interval: 10
   steps: 600
   episodes: 1
