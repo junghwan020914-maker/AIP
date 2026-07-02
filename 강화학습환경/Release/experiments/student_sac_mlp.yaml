@@ -6,14 +6,14 @@
 #   python scripts\run_experiment.py experiments\student_sac_mlp.yaml --dry-run
 
 name: student_sac_mlp
-script: train_rllib
+script: train_curriculum
 
 # 0) 출력 이름
 # - output.name: 팀 이름 또는 실험 그룹 이름
 # - output.tag: 모델/로그 저장 하위 이름
 output:
   name: trinity
-  tag: sac_mlp_stage0_v1
+  tag: sac_mlp_stage0_v3
 
 # 1) 시나리오 선택
 # - observation_mode: classic12 | relative14 | tactical16 | custom
@@ -23,12 +23,14 @@ output:
 env:
   observation_mode: tactical16
   # observation_module: student.my_observation
-  target_mode: behavior_tree
+  target_mode: fixed
   target_behavior_dll: AIP_BASE_target.dll
   reward_module: student.my_reward
-  stages_module: student.my_curriculum
   max_engage_time: 60.0
   episode_step_limit: 3600
+
+curriculum:
+  stages_module: student.my_curriculum
 
 # 1+) 세부 환경 설정
 # - train_rllib.py는 experiment-yaml의 env_config를 env 기본값에 병합한다.
@@ -53,7 +55,7 @@ env_config:
     speed_cmd: 250.0
 
   # 기본 보상 스케일. 개인 보상은 env.reward_module: student.my_reward 사용.
-  # [교체] 지안 님 my_reward.py 연동을 위한 풀 세팅
+  # (my_reward.py의 딕셔너리 구조와 100% 매핑)
   reward:
     mode: default
     survival_bonus: 0.0          # Stage 0에서는 커리큘럼이 자동으로 0.05로 켭니다
@@ -81,14 +83,15 @@ env_config:
     draw_reward: -50.0
     guard_fail_penalty: -50.0
 
-  # [추가] 랜덤화 설정을 명시적으로 추가하여 0 전달 방지
-  # 일단 false로 설정하여 랜덤화를 끄고 학습 안정화
+  # [중요] 초기화 베이스라인 규격 설정
+  # 여기서enabled: true로 열어두어야, 커리큘럼 엔진이 이 구조를 인식하고 
+  # 각 Stage에 적힌 radius: 1.0 (Stage 0) 또는 radius: 500.0 (Stage 1) 수치로 덮어쓰기를 수행합니다.
   ownship_randomization:
-    enabled: false
-    radius: 1.0                  # 에러 우회를 위한 미세 오차 유지
-    r_roll: 0.0
-    r_pitch: 0.0
-    r_heading: 0.0
+    enabled: true
+    radius: 1.0
+    r_roll: 5.0
+    r_pitch: 5.0
+    r_heading: 15.0
 
 # 2) 학습 알고리즘 선택 + 3) 하이퍼파라미터 조정 + 5) 신경망 선택
 # - SAC는 off-policy라 replay buffer를 사용한다.
@@ -112,7 +115,7 @@ algo:
 
 # 학습 실행 설정
 runtime:
-  iterations: 2000
+  iterations: 
   num_env_runners: 1
   num_envs_per_env_runner: 1
   rollout_fragment_length: auto
@@ -139,8 +142,8 @@ policy_probe:
 engagement_log:
   enabled: true
   interval: 10
-  steps: 600
-  episodes: 1
+  steps: 3600                                 # [추천] 60초(3600 step) 궤적을 온전히 다 보기 위해 확장
+  episodes: 5                                 # 넉넉한 모니터링 샘플 확보
   print: true
 
 notes: "Student SAC MLP baseline. Edit env/algo/runtime/log sections for experiments."
