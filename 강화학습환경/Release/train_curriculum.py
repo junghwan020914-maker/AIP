@@ -68,6 +68,7 @@ from dogfight.ai.checkpoint_io import (
 )
 from dogfight.ai.engagement_replay_logger import EngagementReplayLogger
 from dogfight.ai.policy_probe_logger import PolicyProbeLogger
+from dogfight.ai.dashboard_logger import DashboardJsonlLogger
 from dogfight.ai.curriculum import (
     CurriculumStage,
     build_stage_env_config,
@@ -633,6 +634,30 @@ class CurriculumTrainer:
             return
 
         csv_exists = self.csv_path.exists()
+
+        # Dashboard metrics.jsonl 자동 기록 (커리큘럼 학습용).
+        # run_experiment는 train_curriculum에 dashboard 플래그를 넘기지 않으므로
+        # 여기서 직접 artifacts/dashboard/<output_tag>/metrics.jsonl 을 남긴다.
+        # append=csv_exists 로 두어 CSV와 동일하게 fresh/resume를 처리한다.
+        # 대시보드 로깅 실패가 학습을 절대 중단시키지 않도록 방어적으로 감싼다.
+        self._dashboard_logger = None
+        try:
+            self._dashboard_logger = DashboardJsonlLogger(
+                ROOT / "artifacts" / "dashboard",
+                self.args.output_tag,
+                config={
+                    "algorithm":     self.algorithm_name,
+                    "obs_mode":      self.args.observation_mode,
+                    "output_name":   self.args.output_name,
+                    "output_tag":    self.args.output_tag,
+                    "reward_module":  self.args.reward_module,
+                    "stages_module":  self.args.stages_module,
+                },
+                append=csv_exists,
+            )
+        except Exception as exc:
+            print(f"  [Dashboard] logger init failed (학습에는 영향 없음): {exc}")
+
         with open(self.csv_path, "a", newline="", encoding="utf-8") as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=_CSV_FIELDS)
             if not csv_exists:
@@ -716,11 +741,17 @@ class CurriculumTrainer:
                 metrics = self._collect_metrics(result, stage.index, it, algorithm)
                 metric_window.append(metrics)
 
-                self._csv_writer.writerow({
+                log_row = {
                     "stage": stage.index, "iter_in_stage": it,
                     "total_iter": self._total_iter, **metrics,
-                })
+                }
+                self._csv_writer.writerow(log_row)
                 self._csv_file.flush()
+                if self._dashboard_logger is not None:
+                    try:
+                        self._dashboard_logger.write_row(log_row)
+                    except Exception as exc:
+                        print(f"  [Dashboard] write_row failed (학습에는 영향 없음): {exc}")
                 self.policy_probe_logger.maybe_log(
                     algorithm,
                     iteration=self._total_iter,
