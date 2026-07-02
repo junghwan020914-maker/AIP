@@ -13,7 +13,7 @@ script: train_curriculum
 # - output.tag: 모델/로그 저장 하위 이름
 output:
   name: trinity
-  tag: sac_mlp_stage0_v3
+  tag: sac_mlp_stage1_v1
 
 # 1) 시나리오 선택
 # - observation_mode: classic12 | relative14 | tactical16 | custom
@@ -127,6 +127,10 @@ runtime:
   # 학습 재개:
   # restore_checkpoint: artifacts/checkpoints/team01/sac_mlp_v1/checkpoint_000010
   # init_bundle: artifacts/models/team01/sac_mlp_v1
+
+  # Stage 1: iter_0350(Stage0 최적)을 시드로 → Stage0 건너뛰고 Stage1부터 학습
+  start_stage: 1
+  init_bundle: artifacts/models/trinity/stage0_v3_iter0350
 
 # 6) 로그 남기는 설정
 dashboard:
