@@ -36,7 +36,7 @@ def get_stages() -> list[CurriculumStage]:
             description="생존과 스로틀 제어. 고정 타겟.",
             target_mode="fixed",              # 적은 고정(정지) 상태
             episode_step_limit=3600,          # 60초
-            max_iterations=250,               # 생존은 ~220서 수렴 → 250 (시간 절약)
+            max_iterations=300,               # 생존 ~240 수렴 + 안정, 붕괴(~360) 전 (탄탄 베이스)
             checkpoint_interval=10,           # 10 iteration마다 저장
             reward_overrides={
                 # ── 켜는 것 (생존) ──
@@ -72,7 +72,7 @@ def get_stages() -> list[CurriculumStage]:
             description="움직이는 적(Loiter)을 향해 기수를 정렬하고 꼬리를 잡는 기초 추격.",
             target_mode="loiter",              # [핵심] 적기가 가만히 있지 않고 선회 비행을 시작함!
             episode_step_limit=3600,          # 60초 제한시간 유지
-            max_iterations=300,               # 탄탄한 seed 위해 복원 (200은 undertrained였음)
+            max_iterations=400,               # 탄탄한 추격 tail = 베이스라인 핵심(BT팀 전달용)
             checkpoint_interval=10,           # 10 iter마다 저장 (30개 ≈ 90MB, 디스크 절약)
             reward_overrides={
                 # ── 1. 기본 비행 유지 (Stage 0의 학습 내용 보존) ──
@@ -121,7 +121,7 @@ def get_stages() -> list[CurriculumStage]:
             description="비선회(직진) 적을 2° WEZ(152~914m)에 넣어 정조준·사격.",
             target_mode="loiter",             # Step2: 실전형 선회 적. 새 관측(적 속도)으로 리드 학습
             episode_step_limit=3600,          # 60초
-            max_iterations=800,               # 스케일업: 사격은 어려워 충분한 학습량 필요 (300→800)
+            max_iterations=1500,              # 사격은 어려움 → 충분한 학습량. 개선 지속 시 연장
             checkpoint_interval=20,           # 800 iter → 20마다 (40개, 디스크 절약)
             reward_overrides={
                 # ── 기본 비행/생존 (조준하다 강하→추락 억제 위해 고도규율 강화) ──
