@@ -18,6 +18,7 @@ compute_reward()는 매 프레임(1/60초)마다 호출되며,
 """
 from __future__ import annotations
 
+import math
 import sys
 from pathlib import Path
 
@@ -82,6 +83,14 @@ MY_REWARD_CONFIG = {
     "positioning_half_angle_deg": 60.0,   # AA 60° 이내일 때만 보상
     # ── 불리한 위치 패널티 ─────────────
     "wez_threat_penalty": 2.0,   # 적 사거리에 조준당하면 매 프레임 -2.0 (wez_bonus의 거울상)
+
+    # ── [Stage2 정밀조준] 밴드 안에서 ATA→0 급상승하는 dense 조준 보상 ──────────
+    # 기본 0 → Stage0/1 무영향. Stage2 커리큘럼이 aim_scale/too_close_penalty를 켬.
+    "aim_scale": 0.0,            # 밴드 안 정밀조준 보상 크기 (주 전투 신호)
+    "aim_tau_deg": 3.0,          # 작을수록 1° 근처에 급집중 (exp(-ATA/tau))
+    "optimal_range_m": 300.0,    # 밴드 내 최적 사거리(peak). min~max 사이 값
+    # ── [Stage2] 최소사거리(min_range) 안쪽 과접근 방지 ──────────────────────────
+    "too_close_penalty": 0.0,    # min_range 밑으로 파고들면 매 프레임 페널티
 }
 
 
@@ -149,6 +158,37 @@ def compute_reward(
             and target_ata <= enemy_wez_half
         )
     components["wez_threat"] = -float(reward_config.get("wez_threat_penalty", 0.0)) if in_enemy_wez else 0.0
+
+    # ── 4.6. 정밀 조준 보상 (밴드 × 지수 조준) ────────────────────────────────
+    #   Stage2 실패 교훈: pursuit range_factor가 '가까울수록 무조건 +'라 min range 밑으로
+    #   파고들었고(16m), ATA≤1° 정밀도엔 dense 신호가 없었음.
+    #   → 데미지 유효 밴드(min~max) 안에서만, optimal_range에서 peak, ATA→0일수록 급상승.
+    aim_scale = float(reward_config.get("aim_scale", 0.0))
+    if aim_scale != 0.0 and wez_config:
+        min_r = float(wez_config["min_range_m"])
+        max_r = float(wez_config["max_range_m"])
+        opt_r = float(reward_config.get("optimal_range_m", 0.5 * (min_r + max_r)))
+        opt_r = min(max(opt_r, min_r + 1.0), max_r - 1.0)  # 밴드 안으로 클램프
+        if distance < min_r or distance > max_r:
+            band = 0.0                                      # 밴드 밖 → 조준보상 없음(과접근/원거리 방지)
+        elif distance <= opt_r:
+            band = (distance - min_r) / (opt_r - min_r)     # min_r서 0 → optimal서 1
+        else:
+            band = (max_r - distance) / (max_r - opt_r)     # optimal서 1 → max_r서 0
+        aim_tau = max(0.1, float(reward_config.get("aim_tau_deg", 3.0)))
+        fine_aim = math.exp(-ata / aim_tau)                 # ATA 0°→1, 3°→0.37, 10°→0.04
+        components["aim"] = aim_scale * fine_aim * band
+    else:
+        components["aim"] = 0.0
+
+    # ── 4.7. 과접근 페널티 (min_range 안쪽으로 파고들면 −) ─────────────────────
+    too_close_pen = float(reward_config.get("too_close_penalty", 0.0))
+    if too_close_pen != 0.0 and wez_config and distance < float(wez_config["min_range_m"]):
+        min_r = float(wez_config["min_range_m"])
+        depth = (min_r - distance) / min_r                  # 0(경계)~1(충돌)
+        components["too_close"] = -too_close_pen * depth
+    else:
+        components["too_close"] = 0.0
 
     # ── 5. 고도 패널티 ────────────────────────────────────────────────────────
     altitude = float(ownship_state[StateIndex.ALT])

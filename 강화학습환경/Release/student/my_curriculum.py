@@ -10,6 +10,7 @@ For the full built-in curriculum and two-circle head-on reference, see:
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -35,7 +36,7 @@ def get_stages() -> list[CurriculumStage]:
             description="생존과 스로틀 제어. 고정 타겟.",
             target_mode="fixed",              # 적은 고정(정지) 상태
             episode_step_limit=3600,          # 60초
-            max_iterations=300,               # 400 iteration 정도 충분히 배정
+            max_iterations=250,               # 생존은 ~220서 수렴 → 250 (시간 절약)
             checkpoint_interval=10,           # 10 iteration마다 저장
             reward_overrides={
                 # ── 켜는 것 (생존) ──
@@ -71,7 +72,7 @@ def get_stages() -> list[CurriculumStage]:
             description="움직이는 적(Loiter)을 향해 기수를 정렬하고 꼬리를 잡는 기초 추격.",
             target_mode="loiter",              # [핵심] 적기가 가만히 있지 않고 선회 비행을 시작함!
             episode_step_limit=3600,          # 60초 제한시간 유지
-            max_iterations=300,               # 변수가 늘어났으므로 300~400 iter 정도 충분히 배정
+            max_iterations=300,               # 탄탄한 seed 위해 복원 (200은 undertrained였음)
             checkpoint_interval=10,           # 10 iter마다 저장 (30개 ≈ 90MB, 디스크 절약)
             reward_overrides={
                 # ── 1. 기본 비행 유지 (Stage 0의 학습 내용 보존) ──
@@ -105,7 +106,58 @@ def get_stages() -> list[CurriculumStage]:
             #     지표 로깅 안정화되면 복구: {"crash_rate_max": 0.10, "win_rate_min": 0.30}
             advance_conditions={},
             advance_window=20,
-        )
+        ),
+
+        # =====================================================================
+        # Stage 2 (Step1): WEZ 정조준·사격 — 비선회(autopilot 직진) 타겟부터
+        #   v2 실패 교훈: (a) aim τ=3°가 밴드내 33° 구간에 gradient 0,
+        #   (b) pursuit 0.2로 추적 자체가 약해짐(replay상 stage1보다 나쁨),
+        #   (c) loiter turn-matching이 너무 어려움(관측에 적 속도 없어 리드 불가).
+        #   → Step1: pursuit 복원(0.4)+aim τ=15+비선회 타겟으로 '밴드내 정조준' 가능성 검증.
+        # =====================================================================
+        CurriculumStage(
+            index=2,
+            name="wez_gunnery",
+            description="비선회(직진) 적을 2° WEZ(152~914m)에 넣어 정조준·사격.",
+            target_mode="loiter",             # Step2: 실전형 선회 적. 새 관측(적 속도)으로 리드 학습
+            episode_step_limit=3600,          # 60초
+            max_iterations=800,               # 스케일업: 사격은 어려워 충분한 학습량 필요 (300→800)
+            checkpoint_interval=20,           # 800 iter → 20마다 (40개, 디스크 절약)
+            reward_overrides={
+                # ── 기본 비행/생존 (조준하다 강하→추락 억제 위해 고도규율 강화) ──
+                "survival_bonus": 0.02,
+                "low_altitude_penalty": 1.5,     # 추락 40% → 1.0→1.5 강화
+                "loss_reward": -100.0,
+                # ── 코스 추적: stage1 수준으로 복원(0.4). v2의 0.2는 추적을 망침(replay 확인) ──
+                "pursuit_scale": 0.4,
+                "pursuit_half_angle_deg": 180.0, # dead-zone 제거: 전각도 추적 gradient(81°서 굳던 문제 해결)
+                "pursuit_range_m": 4000.0,
+                "positioning_scale": 0.15,
+                # ── ★정밀 조준: 밴드 안 ATA→0 급상승. τ=15로 완만화(33°→10° 구간에 gradient) ──
+                "aim_scale": 0.6,                # 주 정밀 조준 신호
+                "aim_tau_deg": 15.0,             # v2의 3°는 너무 날카로워 밴드내 33°서 신호≈0이었음
+                "optimal_range_m": 300.0,        # 152m 위 안전마진 + 데미지 높은 지점
+                # ── 과접근 방지 (v1의 16m 파고들기 차단) ──
+                "too_close_penalty": 0.5,
+                # ── 사격 payoff (ATA≤1° 달성 시 실데미지/격추) ──
+                "wez_bonus": 0.0,
+                "damage_scale": 50.0,            # 고정 (스윕 폐기 — 계수는 문제 아니었음)
+                "win_reward": 100.0,
+                "wez_threat_penalty": 0.0,
+                "draw_reward": 0.0,
+            },
+            # Stage1과 동일 초기분포 (변수는 보상만)
+            randomization={
+                "enabled": True,
+                "radius": 500.0,
+                "r_roll": 5.0,
+                "r_pitch": 5.0,
+                "r_heading": 10.0,
+            },
+            # auto-advance 비활성화 (nan 오진급 버그 회피). 고정 iter + 최적 checkpoint 수동 선택.
+            advance_conditions={},
+            advance_window=20,
+        ),
     ]
 
 __all__ = ["get_stages"]

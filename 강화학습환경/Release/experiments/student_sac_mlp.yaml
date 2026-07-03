@@ -13,7 +13,7 @@ script: train_curriculum
 # - output.tag: 모델/로그 저장 하위 이름
 output:
   name: trinity
-  tag: sac_mlp_stage1_v1
+  tag: sac_mlp_obs20_v2
 
 # 1) 시나리오 선택
 # - observation_mode: classic12 | relative14 | tactical16 | custom
@@ -21,8 +21,8 @@ output:
 # - target_mode: fixed | loiter | autopilot | behavior_tree
 # - behavior_tree는 target_behavior_dll 필요
 env:
-  observation_mode: tactical16
-  # observation_module: student.my_observation
+  observation_mode: custom
+  observation_module: student.my_observation   # tactical20 (적 운동 추가)
   target_mode: fixed
   target_behavior_dll: AIP_BASE_target.dll
   reward_module: student.my_reward
@@ -52,7 +52,7 @@ env_config:
   target_autopilot:
     heading_cmd: 180.0
     altitude_cmd: 7000.0
-    speed_cmd: 250.0
+    speed_cmd: 120.0                            # Step1: 잡을 수 있는 느린 직진 타겟 (250→120)
 
   # 기본 보상 스케일. 개인 보상은 env.reward_module: student.my_reward 사용.
   # (my_reward.py의 딕셔너리 구조와 100% 매핑)
@@ -128,9 +128,9 @@ runtime:
   # restore_checkpoint: artifacts/checkpoints/team01/sac_mlp_v1/checkpoint_000010
   # init_bundle: artifacts/models/team01/sac_mlp_v1
 
-  # Stage 1: iter_0350(Stage0 최적)을 시드로 → Stage0 건너뛰고 Stage1부터 학습
+  # obs20 v2 스케일업: obs 그대로라 stage0 재사용 → stage1(300)+stage2(800)만
   start_stage: 1
-  init_bundle: artifacts/models/trinity/stage0_v3_iter0350
+  init_bundle: artifacts/models/trinity/obs20_stage0
 
 # 6) 로그 남기는 설정
 dashboard:
