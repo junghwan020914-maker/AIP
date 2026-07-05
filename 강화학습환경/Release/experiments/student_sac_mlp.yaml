@@ -13,7 +13,7 @@ script: train_curriculum
 # - output.tag: 모델/로그 저장 하위 이름
 output:
   name: trinity
-  tag: sac_mlp_obs20_v12_aimprecision
+  tag: sac_mlp_obs20_v13_harden
 
 # 1) 시나리오 선택
 # - observation_mode: classic12 | relative14 | tactical16 | custom
@@ -130,9 +130,9 @@ runtime:
 
   # obs20 v4_altdisc: v3 stage0(생존, 정상)은 재사용하고 stage1(추격)+stage2(사격)만 재학습.
   # v3 진단 → safe_altitude_m 450→6000으로 고도규율 근본수정(추격 중 추락 방지).
-  # v12: v11 stage1(coordinated turn 성공=crash0·교전O)에서 warm-start → gunnery(stage2)만 집중·연장.
-  start_stage: 2
-  init_bundle: artifacts/curriculum/trinity/sac_mlp_obs20_v11_altgate/stage_1_basic_pursuit/final_bundle
+  # v13 하드닝: fresh 램프. stage0/1(bank15 coordinated turn)→stage2(bank30 하드추격). 추격 베이스라인 굳히기.
+  start_stage: 0
+  # init_bundle: (fresh)
 
 # 6) 로그 남기는 설정
 dashboard:

@@ -138,7 +138,7 @@ def get_stages() -> list[CurriculumStage]:
             description="비선회(직진) 적을 2° WEZ(152~914m)에 넣어 정조준·사격.",
             target_mode="loiter",             # ★안정적 gentle loiter(bank15)서 사격 학습
             episode_step_limit=3600,          # 60초
-            max_iterations=600,               # v12: 300→600. 사격 정밀도(ATA 벽)는 더 긴 학습 필요(iteration confound 배제)
+            max_iterations=300,               # v13: 하드닝(bank30 pursuit), 사격 defer
             checkpoint_interval=50,           # [속도] 20→50: 저장 I/O↓
             reward_overrides={
                 # ── 기본 비행/생존 (v4 교훈: 큰 고도페널티 역효과 → 완만한 floor + 자세규율로 전환) ──
@@ -156,7 +156,7 @@ def get_stages() -> list[CurriculumStage]:
                 "pursuit_range_m": 4000.0,
                 "positioning_scale": 0.15,
                 # ── ★정밀 조준: 밴드 안 ATA→0 급상승. τ=15로 완만화(33°→10° 구간에 gradient) ──
-                "aim_scale": 0.6,                # 주 정밀 조준 신호
+                "aim_scale": 0.0,                # v13 하드닝: 사격 defer(LSTM 후일), bank30 추격 교전만 굳힘
                 "aim_tau_deg": 8.0,              # v12: 15→8 더 날카롭게(ATA<20° 구간에 강한 gradient — 정밀도 벽 공략)
                 "optimal_range_m": 300.0,        # 152m 위 안전마진 + 데미지 높은 지점
                 # ── 과접근 방지: v3에선 애초에 min_range 근처도 못 감(최소 237m) → 접근 억제만 함. 제거 ──
@@ -176,6 +176,8 @@ def get_stages() -> list[CurriculumStage]:
                 "r_pitch": 5.0,
                 "r_heading": 10.0,
             },
+            # v13 하드닝: 이 스테이지만 어려운 loiter(bank 30)로 → 난이도 램프(15→30)
+            env_overrides={"target_loiter": {"bank": 30.0}},
             # auto-advance 비활성화 (nan 오진급 버그 회피). 고정 iter + 최적 checkpoint 수동 선택.
             advance_conditions={},
             advance_window=20,

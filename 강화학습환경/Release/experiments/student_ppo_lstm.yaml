@@ -1,39 +1,70 @@
-# Student PPO LSTM template
+# Student PPO LSTM — 우리 커리큘럼/보상/관측 + PPO(on-policy)+LSTM(표준 RLlib recurrent)
 #
-# PPO LSTM은 기본 RLlib recurrent 경로를 사용한다. SAC LSTM과 달리 별도
-# RLLibLstm SAC 패치 없이도 사용 가능하다.
+# 실행:   python scripts\run_experiment.py experiments\student_ppo_lstm.yaml
+# dry-run: python scripts\run_experiment.py experiments\student_ppo_lstm.yaml --dry-run
+#
+# 목적(v14): SAC-LSTM 패치경로가 broken → PPO+LSTM(표준 recurrent, SAC 패치 불필요)으로 memory 확보.
+# env/curriculum/reward는 MLP와 동일, algo만 PPO+LSTM. PPO는 on-policy(replay 없음). fresh.
 
 name: student_ppo_lstm
-script: train_rllib
+script: train_curriculum
 
 output:
-  name: team01
-  tag: ppo_lstm_v1
+  name: trinity
+  tag: ppo_lstm_obs20_v1
 
-# 1) 시나리오 선택 + 4) 개인 관측/보상 hook
 env:
-  observation_mode: tactical16
-  # observation_mode: custom
-  # observation_module: student.my_observation
+  observation_mode: custom
+  observation_module: student.my_observation   # tactical20 (MLP와 동일 관측)
   target_mode: fixed
   target_behavior_dll: AIP_BASE_target.dll
-  # reward_module: student.my_reward
+  reward_module: student.my_reward
   max_engage_time: 60.0
   episode_step_limit: 3600
 
+curriculum:
+  stages_module: student.my_curriculum          # MLP와 동일 커리큘럼(stage0 orient→1 pursuit bank15→2 pursuit bank30)
+
 env_config:
   step_ratio: 6
+  wez:
+    angle_deg: 2.0
+    min_range_m: 152.4
+    max_range_m: 914.4
+  target_loiter:
+    enabled: true
+    bank: 15.0
+    pitch: 0.0
+  target_autopilot:
+    heading_cmd: 180.0
+    altitude_cmd: 7000.0
+    speed_cmd: 120.0
   reward:
     mode: default
+    survival_bonus: 0.0
     step_penalty: -0.01
-    damage_scale: 20.0
-    pursuit_scale: 0.3
+    pursuit_scale: 0.4
+    pursuit_half_angle_deg: 45.0
+    pursuit_range_m: 4000.0
+    positioning_scale: 0.3
+    positioning_half_angle_deg: 60.0
+    wez_bonus: 2.0
+    wez_threat_penalty: 2.0
     low_altitude_penalty: 0.1
-    win_reward: 100.0
-    loss_reward: -100.0
-    draw_reward: -30.0
+    safe_altitude_m: 450.0
+    damage_scale: 25.0
+    win_reward: 200.0
+    loss_reward: -200.0
+    draw_reward: -50.0
+    guard_fail_penalty: -50.0
+  ownship_randomization:
+    enabled: true
+    radius: 1.0
+    r_roll: 5.0
+    r_pitch: 5.0
+    r_heading: 15.0
 
-# 2) 알고리즘 + 3) 하이퍼파라미터 + 5) LSTM 신경망
+# ── PPO(on-policy) + LSTM(표준 RLlib recurrent) ──
 algo:
   name: ppo
   framework: torch
@@ -57,32 +88,33 @@ algo:
     vf_share_layers: true
 
 runtime:
-  iterations: 50
+  iterations:
   num_env_runners: 1
   num_envs_per_env_runner: 1
-  rollout_fragment_length: 8
+  rollout_fragment_length: 8                     # max_seq_len과 맞춤(시퀀스)
   batch_mode: truncate_episodes
   save_lightweight_bundle: true
-  lightweight_bundle_frequency: 0
+  lightweight_bundle_frequency: 25
   save_native_checkpoint: false
-  native_checkpoint_frequency: 0
+  native_checkpoint_frequency: 25
+  # LSTM은 MLP 가중치 warm-start 불가 → fresh
+  start_stage: 0
 
-# 6) 로그 설정
 dashboard:
   enabled: true
   logdir: artifacts/dashboard
 
 policy_probe:
   enabled: true
-  interval: 10
+  interval: 30
   steps: 4
   print: true
 
 engagement_log:
   enabled: true
-  interval: 10
-  steps: 600
+  interval: 100
+  steps: 1800
   episodes: 1
   print: true
 
-notes: "Student PPO LSTM template."
+notes: "Student PPO+LSTM. MLP와 동일 커리큘럼/보상/관측, algo만 PPO recurrent. SAC-LSTM broken 대체."
