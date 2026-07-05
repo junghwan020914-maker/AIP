@@ -91,6 +91,23 @@ MY_REWARD_CONFIG = {
     "optimal_range_m": 300.0,    # 밴드 내 최적 사거리(peak). min~max 사이 값
     # ── [Stage2] 최소사거리(min_range) 안쪽 과접근 방지 ──────────────────────────
     "too_close_penalty": 0.0,    # min_range 밑으로 파고들면 매 프레임 페널티
+
+    # ── [자세규율] 인버티드 스파이럴 다이브 방지 (v4 진단: 적 쫓으려 롤 90°+ → 급강하 추락) ──
+    # 기본 0 → 다른 스테이지 무영향. 커리큘럼 stage1/2가 켬.
+    # 완만한 선회(bank<limit, 완만한 pitch)는 무페널티, 극단 자세만 dense 페널티.
+    "bank_penalty_scale": 0.0,   # |roll|이 bank_limit 초과 시 매 프레임 페널티(뒤집힘 억제)
+    "bank_limit_deg": 100.0,     # 하드턴(~90°) 허용, 인버전(>100°)만 페널티(스파이럴은 150°였음)
+    "dive_penalty_scale": 0.0,   # pitch가 -dive_limit 밑(급강하)이면 매 프레임 페널티
+    "dive_limit_deg": 30.0,      # 이 각까지는 정상 기동 허용
+    # ── [에너지관리] 하강률(sink rate) 페널티 — 지속 추격턴서 고도 조금씩 잃고 추락하는 문제.
+    #   dive는 pitch<-30°만 잡지만, pitch -10~-30° 지속 강하는 못 잡음 → sink이 그 갭을 메움.
+    "sink_rate_penalty_scale": 0.0,   # 기본 off. 커리큘럼이 켬. 하강 속도에 비례한 dense 페널티
+    # ── [★고도게이트] pursuit/positioning을 '고도 유지할 때만' 보상(coordinated turn 유도) ──
+    #   crash↔disengage tension 해소: 페널티(선회 억제)가 아니라, 선회하며 고도 유지해야 보상받음.
+    #   gate = (1-scale) + scale*alt_factor. alt_factor: ref_m서 1 → floor_m서 0.
+    "pursuit_alt_gate_scale": 0.0,    # 0=off, 1=완전 게이팅. 커리큘럼이 켬
+    "pursuit_alt_gate_ref_m": 7000.0, # 이 고도(교전고도)서 gate=1
+    "pursuit_alt_gate_floor_m": 4000.0,  # 이 고도서 gate=0 (아래로 갈수록 pursuit 보상 소멸)
 }
 
 
@@ -137,6 +154,18 @@ def compute_reward(
     aa_factor = max(0.0, 1.0 - aa / positioning_half)
     # range_factor는 위 pursuit에서 이미 계산됨 → 재사용
     components["positioning"] = float(reward_config["positioning_scale"]) * aa_factor * range_factor
+
+    # ── 3.6. ★고도게이트: pursuit/positioning을 고도 유지할 때만 보상 (coordinated turn 유도) ──
+    #   crash↔disengage tension 해소 — 선회하며 고도 지켜야 pursuit 보상. 고도 잃으면 보상 소멸.
+    alt_gate = float(reward_config.get("pursuit_alt_gate_scale", 0.0))
+    if alt_gate > 0.0:
+        alt_ref = float(reward_config.get("pursuit_alt_gate_ref_m", 7000.0))
+        alt_floor = float(reward_config.get("pursuit_alt_gate_floor_m", 4000.0))
+        altitude_now = float(ownship_state[StateIndex.ALT])
+        alt_factor = max(0.0, min(1.0, (altitude_now - alt_floor) / max(1.0, alt_ref - alt_floor)))
+        gate = (1.0 - alt_gate) + alt_gate * alt_factor
+        components["pursuit"] *= gate
+        components["positioning"] *= gate
 
     # ── 4. WEZ 진입 보너스 ────────────────────────────────────────────────────
     in_wez = False
@@ -199,6 +228,41 @@ def compute_reward(
         components["altitude"] = -float(reward_config["low_altitude_penalty"]) * (1.0 + depth)
     else:
         components["altitude"] = 0.0
+
+    # ── 5.5. 자세규율: 인버티드 스파이럴 다이브 방지 ─────────────────────────────
+    #   v4 replay 진단: 적 쫓으려 roll을 150°(뒤집힘)까지 → 당김이 급강하가 되어 추락.
+    #   극단 롤/급강하만 dense 페널티(정상 선회는 무페널티) → 완만한 기동 학습 유도.
+    bank_scale = float(reward_config.get("bank_penalty_scale", 0.0))
+    if bank_scale != 0.0:
+        roll = abs(float(ownship_state[StateIndex.ROLL]))
+        bank_limit = float(reward_config.get("bank_limit_deg", 100.0))
+        # limit 초과분을 (180-limit)로 정규화: limit서 0 → 180°(완전뒤집힘)서 ~1
+        excess = max(0.0, roll - bank_limit) / max(1.0, 180.0 - bank_limit)
+        components["bank"] = -bank_scale * excess
+    else:
+        components["bank"] = 0.0
+
+    dive_scale = float(reward_config.get("dive_penalty_scale", 0.0))
+    if dive_scale != 0.0:
+        pitch = float(ownship_state[StateIndex.PITCH])
+        dive_limit = float(reward_config.get("dive_limit_deg", 30.0))
+        # 급강하(pitch < -limit)만: limit서 0 → -90°서 ~1
+        excess = max(0.0, (-pitch) - dive_limit) / max(1.0, 90.0 - dive_limit)
+        components["dive"] = -dive_scale * excess
+    else:
+        components["dive"] = 0.0
+
+    # sink rate: 하강 속도(에너지 상실) 억제. climb_rate=speed×sin(pitch), 하강(음수)만 페널티.
+    sink_scale = float(reward_config.get("sink_rate_penalty_scale", 0.0))
+    if sink_scale != 0.0:
+        spd = float(ownship_state[StateIndex.KCAS])
+        climb_rate = spd * math.sin(math.radians(float(ownship_state[StateIndex.PITCH])))
+        if climb_rate < 0.0:
+            components["sink"] = -sink_scale * min(1.0, (-climb_rate) / 200.0)  # 200 KCAS·rad서 포화
+        else:
+            components["sink"] = 0.0
+    else:
+        components["sink"] = 0.0
 
     # ── 6. 피해 보상 ──────────────────────────────────────────────────────────
     components["damage"] = float(reward_config["damage_scale"]) * (target_damage - ownship_damage)

@@ -13,7 +13,7 @@ script: train_curriculum
 # - output.tag: 모델/로그 저장 하위 이름
 output:
   name: trinity
-  tag: sac_mlp_obs20_v3
+  tag: sac_mlp_obs20_v12_aimprecision
 
 # 1) 시나리오 선택
 # - observation_mode: classic12 | relative14 | tactical16 | custom
@@ -45,7 +45,7 @@ env_config:
   # target_mode: loiter일 때 사용
   target_loiter:
     enabled: true
-    bank: 30.0
+    bank: 15.0                                 # 30→15: 완만한 선회(고도유지·하드턴 불필요). 안정 후 다시 ↑
     pitch: 0.0
 
   # target_mode: autopilot일 때 사용
@@ -121,15 +121,18 @@ runtime:
   rollout_fragment_length: auto
   batch_mode: truncate_episodes
   save_lightweight_bundle: true
-  lightweight_bundle_frequency: 5
-  save_native_checkpoint: true
+  lightweight_bundle_frequency: 25             # [속도] 5→25: 번들 저장 I/O↓(최종+소수만 필요)
+  save_native_checkpoint: false               # [속도] native=무거운 디스크I/O·resume전용. 스테이지전달/eval은 lightweight로 충분
   native_checkpoint_frequency: 25
   # 학습 재개:
   # restore_checkpoint: artifacts/checkpoints/team01/sac_mlp_v1/checkpoint_000010
   # init_bundle: artifacts/models/team01/sac_mlp_v1
 
-  # obs20 v3 탄탄 베이스라인: stage0부터 전체 재학습 (300/400/1500), 시드 없음
-  start_stage: 0
+  # obs20 v4_altdisc: v3 stage0(생존, 정상)은 재사용하고 stage1(추격)+stage2(사격)만 재학습.
+  # v3 진단 → safe_altitude_m 450→6000으로 고도규율 근본수정(추격 중 추락 방지).
+  # v12: v11 stage1(coordinated turn 성공=crash0·교전O)에서 warm-start → gunnery(stage2)만 집중·연장.
+  start_stage: 2
+  init_bundle: artifacts/curriculum/trinity/sac_mlp_obs20_v11_altgate/stage_1_basic_pursuit/final_bundle
 
 # 6) 로그 남기는 설정
 dashboard:
@@ -138,15 +141,15 @@ dashboard:
 
 policy_probe:
   enabled: true
-  interval: 10
+  interval: 30                                # [속도] 10→30: probe/print 빈도↓ (steps=4라 영향 작음)
   steps: 4
   print: true
 
 engagement_log:
   enabled: true
-  interval: 10
-  steps: 3600                                 # [추천] 60초(3600 step) 궤적을 온전히 다 보기 위해 확장
-  episodes: 5                                 # 넉넉한 모니터링 샘플 확보
+  interval: 100                               # [속도] 10→100: 순수 eval(학습 미포함) → 대폭 축소
+  steps: 1800                                 # 3600→1800: 모니터링용 짧게(정밀진단은 학습후 eval_vs_loiter --save-log)
+  episodes: 1                                 # 5→1: crash율은 training_log(학습 rollout)에서 봄, replay 1개면 충분
   print: true
 
 notes: "Student SAC MLP baseline. Edit env/algo/runtime/log sections for experiments."

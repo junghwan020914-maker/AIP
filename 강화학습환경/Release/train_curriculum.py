@@ -116,7 +116,10 @@ def env_creator(env_config):
     reward_module = str(cfg.get("reward_module", "")).strip()
     if reward_module:
         reward_fn, reward_config = load_reward_hook(reward_module)
-        cfg.setdefault("reward", reward_config)
+        # 근본수정: MY_REWARD_CONFIG 기본값을 base로 두고 yaml env_config.reward가 override.
+        # (기존 setdefault는 yaml이 있으면 기본값을 아예 안 합쳐서, override/yaml에 없는 기본 키가
+        #  effective config에서 빠지는 함정이 있었음 → 새 보상인자를 기본값에만 넣으면 안 먹었음.)
+        cfg["reward"] = {**reward_config, **cfg.get("reward", {})}
     observation_module = str(cfg.get("observation_module", "")).strip()
     if observation_module:
         observation_hook = load_observation_hook(observation_module)
