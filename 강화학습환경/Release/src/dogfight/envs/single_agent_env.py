@@ -496,6 +496,16 @@ class DogFightEnv(gym.Env):
         elif control_mode == "loiter":
             loiter = self.config["target_loiter"]
             self._sim.step_loiter(loiter["enabled"], loiter["bank"], loiter["pitch"])
+        elif self.config.get("ownship_residual_base") == "vp":
+            # residual 학습: base(VP-base 컨트롤러=coordinated turn) + scale×RL. config-gated(비파괴적).
+            from student.vp_utils import compute_vp
+            from student.vp_base_controller import base_action
+            vp = compute_vp(self._ownship_state, self._target_state,
+                            lead_time=float(self.config.get("vp_lead_time", 1.2)))
+            base = base_action(self._ownship_state, vp)
+            scale = float(self.config.get("residual_scale", 0.35))
+            combined = np.clip(base + scale * np.asarray(action, dtype=np.float32), -1.0, 1.0)
+            self._sim.step(self._to_sim_action(combined))
         else:
             self._sim.step(self._to_sim_action(action))
 

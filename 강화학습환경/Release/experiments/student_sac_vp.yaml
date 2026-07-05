@@ -1,0 +1,96 @@
+# Student SAC — VP-following (주어진 VP를 향해 최적 비행)
+#
+# 실행:   python scripts\run_experiment.py experiments\student_sac_vp.yaml
+# dry-run: python scripts\run_experiment.py experiments\student_sac_vp.yaml --dry-run
+#
+# 방향: BT가 VP(조준점) 생성 → RL이 그 VP로 최적 비행(고전 StickController 대체).
+# 학습은 synthetic VP(적 리드점). observation=my_observation_vp, reward=my_reward_vp, curriculum=my_curriculum_vp.
+# reactive 태스크 → SAC-MLP(LSTM 불필요).
+
+name: student_sac_vp
+script: train_curriculum
+
+output:
+  name: trinity
+  tag: sac_vp_obs11_v1
+
+env:
+  observation_mode: custom
+  observation_module: student.my_observation_vp   # 11D VP-following 관측
+  target_mode: loiter
+  target_behavior_dll: AIP_BASE_target.dll
+  reward_module: student.my_reward_vp
+  max_engage_time: 60.0
+  episode_step_limit: 3600
+
+curriculum:
+  stages_module: student.my_curriculum_vp
+
+env_config:
+  step_ratio: 6
+  wez:
+    angle_deg: 2.0
+    min_range_m: 152.4
+    max_range_m: 914.4
+  target_loiter:
+    enabled: true
+    bank: 15.0
+    pitch: 0.0
+  # VP 보상은 student.my_reward_vp.MY_REWARD_CONFIG가 기본. yaml은 최소만(덮어쓰기 방지).
+  reward:
+    mode: default
+    step_penalty: -0.01
+  ownship_randomization:
+    enabled: true
+    radius: 500.0
+    r_roll: 5.0
+    r_pitch: 5.0
+    r_heading: 15.0
+
+algo:
+  name: sac
+  framework: torch
+  lr: 3.0e-4
+  gamma: 0.99
+  train_batch_size: 256
+  minibatch_size: 256
+  tau: 0.005
+  target_entropy: auto
+  replay_buffer_capacity: 10000
+  mlp:
+    enabled: true
+    fcnet_hiddens: [256, 256]
+    fcnet_activation: relu
+    head_fcnet_hiddens: []
+    head_fcnet_activation: relu
+
+runtime:
+  iterations:
+  num_env_runners: 1
+  num_envs_per_env_runner: 1
+  rollout_fragment_length: auto
+  batch_mode: truncate_episodes
+  save_lightweight_bundle: true
+  lightweight_bundle_frequency: 25
+  save_native_checkpoint: false
+  native_checkpoint_frequency: 25
+  start_stage: 0
+
+dashboard:
+  enabled: true
+  logdir: artifacts/dashboard
+
+policy_probe:
+  enabled: true
+  interval: 30
+  steps: 4
+  print: true
+
+engagement_log:
+  enabled: true
+  interval: 100
+  steps: 1800
+  episodes: 1
+  print: true
+
+notes: "SAC VP-following. BT의 VP를 향해 나는 조종사(학습은 synthetic VP). reactive=MLP."
